@@ -1,9 +1,9 @@
 # Build the React bundle in the image; Node.js is not needed on the NAS.
 FROM node:22-alpine AS frontend-build
 WORKDIR /build/frontend
-COPY frontend/package.json frontend/package-lock.json ./
+COPY Frontend/package.json Frontend/package-lock.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY Frontend/ ./
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS web
@@ -19,6 +19,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY backend/ ./backend/
+COPY Backend/ ./backend/
 EXPOSE 8000
 CMD ["python", "backend/scripts/container_start.py"]
