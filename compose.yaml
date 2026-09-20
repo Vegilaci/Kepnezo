@@ -1,51 +1,64 @@
-# TrueNAS SCALE 24.10+ Apps > Discover > Install via YAML.
-# Adjust the build paths, dataset path, UID/GID and published port for your NAS.
 services:
   backend:
     build:
-      context: /mnt/tank/apps/family-share
+      context: /mnt/testpool/apps/Kepnezo
       dockerfile: Dockerfile
       target: backend
+
     user: "3001:3001"
+
     env_file:
-      - /mnt/tank/apps/family-share/.env
+      - /mnt/testpool/apps/Kepnezo/.env
+
     environment:
       SHARED_ROOT: /data
       AUTH_DB_PATH: /config/auth.sqlite3
       TMPDIR: /data/.family-share-tmp
+
     volumes:
       - type: bind
-        source: /mnt/tank/family_share
+        source: /mnt/testpool/apppa
         target: /data
+
       - type: bind
-        source: /mnt/tank/apps/family-share-config
+        source: /mnt/testpool/apps/Kepnezo-data
         target: /config
+
     ports:
-      # LAN-only port. Do not forward it on the router.
       - "18080:8080"
+
     restart: unless-stopped
     read_only: true
+
     security_opt:
       - no-new-privileges:true
+
     cap_drop:
       - ALL
+
     pids_limit: 256
 
   web:
     build:
-      context: /mnt/tank/apps/family-share
+      context: /mnt/testpool/apps/Kepnezo
       dockerfile: Dockerfile
       target: web
+
     network_mode: "service:backend"
+
     depends_on:
       - backend
+
     restart: unless-stopped
     read_only: true
+
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /var/cache/nginx:size=16m,uid=101,gid=101
       - /var/run:size=1m,uid=101,gid=101
+
     security_opt:
       - no-new-privileges:true
+
     cap_drop:
-      - ALL
+      - ALL 
