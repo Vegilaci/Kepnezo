@@ -43,34 +43,6 @@ def connection(settings: Settings):
         db.close()
 
 
-def init_db(settings: Settings) -> None:
-    root = settings.shared_root.resolve(strict=False)
-    db_path = settings.auth_db_path.resolve(strict=False)
-    if db_path == root or root in db_path.parents:
-        raise RuntimeError("AUTH_DB_PATH must be outside SHARED_ROOT")
-    if not db_path.parent.is_dir() or db_path.parent.is_symlink():
-        raise RuntimeError("AUTH_DB_PATH parent directory must already exist and not be a symlink")
-    if db_path.is_symlink():
-        raise RuntimeError("AUTH_DB_PATH may not be a symlink")
-    with connection(settings) as db:
-        db.execute("PRAGMA journal_mode=DELETE")
-        db.execute("""CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            auth_version INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
-        )""")
-        db.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
-            username TEXT PRIMARY KEY,
-            failures INTEGER NOT NULL,
-            locked_until INTEGER NOT NULL DEFAULT 0
-        )""")
-    db_path.chmod(0o600)
-
-
 def get_user(settings: Settings, *, username: str | None = None, user_id: int | None = None):
     with connection(settings) as db:
         if username is not None:
