@@ -1,20 +1,28 @@
 import mimetypes
 import os
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
 from .sandbox import FileSandbox, stat_without_links
-from .security import COOKIE_NAME, create_session, current_session, mutation_guard, verify_password
+from .security import COOKIE_NAME, admin_session, create_session, current_session, dummy_password_hash, mutation_guard, password_hasher, verify_password
+from .users import add_user, all_users, change_flags, get_lockout, get_user, init_db, normalize_username, record_login, set_password
 
-app = FastAPI(title="Family Share", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db(get_settings())
+    yield
+
+
+app = FastAPI(title="Family Share", docs_url=None, redoc_url=None, lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 
@@ -23,8 +31,27 @@ async def sandbox(settings: Settings = Depends(get_settings)) -> FileSandbox:
 
 
 class LoginBody(BaseModel):
+    username: str = Field(max_length=32)
+    password: str = Field(max_length=1024)
+
+
+class NewUserBody(BaseModel):
     username: str
-    password: str
+    password: str = Field(min_length=12, max_length=1024)
+    is_admin: bool = False
+
+
+class UserFlagsBody(BaseModel):
+    is_admin: bool | None = None
+    is_active: bool | None = None
+
+
+class PasswordBody(BaseModel):
+    password: str = Field(min_length=12, max_length=1024)
+
+
+class OwnPasswordBody(PasswordBody):
+    current_password: str = Field(max_length=1024)
 
 
 class PathBody(BaseModel):
@@ -50,25 +77,79 @@ def item_json(path: Path, box: FileSandbox) -> dict:
 
 
 @api.post("/auth/login")
-async def login(body: LoginBody, response: Response, settings: Settings = Depends(get_settings)):
-    if body.username != settings.admin_username or not verify_password(body.password, settings.admin_password_hash):
+async def login(body: LoginBody, request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    from time import time
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != settings.public_origin.rstrip("/"):
+        raise HTTPException(403, "Érvénytelen origin")
+    username = body.username.strip().lower()
+    user = get_user(settings, username=username)
+    now = int(time())
+    if user and get_lockout(settings, username) > now:
+        raise HTTPException(429, "Túl sok hibás próbálkozás; próbáld később")
+    valid_password = verify_password(body.password, user["password_hash"] if user else dummy_password_hash)
+    if not user or not user["is_active"] or not valid_password:
+        if user:
+            record_login(settings, username, False, now)
         raise HTTPException(401, "Hibás felhasználónév vagy jelszó")
-    token, csrf = create_session(body.username, settings)
+    record_login(settings, username, True, now)
+    token, csrf = create_session(user, settings)
     response.set_cookie(
         COOKIE_NAME, token, httponly=True, secure=settings.cookie_secure,
         samesite="strict", max_age=settings.session_hours * 3600, path="/",
     )
-    return {"username": body.username, "csrf": csrf}
+    return {"username": user["username"], "is_admin": bool(user["is_admin"]), "csrf": csrf}
 
 
 @api.get("/auth/me")
 async def me(session: dict = Depends(current_session)):
-    return {"username": session["sub"], "csrf": session["csrf"]}
+    return {"username": session["user"]["username"], "is_admin": session["user"]["is_admin"], "csrf": session["csrf"]}
 
 
 @api.post("/auth/logout")
 async def logout(response: Response, _: dict = Depends(mutation_guard)):
     response.delete_cookie(COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@api.post("/auth/password")
+async def own_password(body: OwnPasswordBody, response: Response, session: dict = Depends(mutation_guard), settings: Settings = Depends(get_settings)):
+    user = get_user(settings, user_id=session["user"]["id"])
+    if not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(400, "A jelenlegi jelszó hibás")
+    set_password(settings, user["id"], password_hasher.hash(body.password))
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@api.get("/admin/users")
+async def list_users(_: dict = Depends(admin_session), settings: Settings = Depends(get_settings)):
+    return {"users": all_users(settings)}
+
+
+@api.post("/admin/users", status_code=201)
+async def create_user(body: NewUserBody, session: dict = Depends(mutation_guard), settings: Settings = Depends(get_settings)):
+    if not session["user"]["is_admin"]:
+        raise HTTPException(403, "Admin jogosultság szükséges")
+    return add_user(settings, normalize_username(body.username), password_hasher.hash(body.password), body.is_admin)
+
+
+@api.patch("/admin/users/{user_id}")
+async def update_user(user_id: int, body: UserFlagsBody, session: dict = Depends(mutation_guard), settings: Settings = Depends(get_settings)):
+    if not session["user"]["is_admin"]:
+        raise HTTPException(403, "Admin jogosultság szükséges")
+    if body.is_admin is None and body.is_active is None:
+        raise HTTPException(400, "Nincs módosítás")
+    if user_id == session["user"]["id"] and (body.is_admin is False or body.is_active is False):
+        raise HTTPException(400, "Saját admin fiók nem tiltható le")
+    return change_flags(settings, user_id, is_admin=body.is_admin, is_active=body.is_active)
+
+
+@api.post("/admin/users/{user_id}/password")
+async def reset_password(user_id: int, body: PasswordBody, session: dict = Depends(mutation_guard), settings: Settings = Depends(get_settings)):
+    if not session["user"]["is_admin"]:
+        raise HTTPException(403, "Admin jogosultság szükséges")
+    set_password(settings, user_id, password_hasher.hash(body.password))
     return {"ok": True}
 
 

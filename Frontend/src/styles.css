@@ -23,3 +23,20 @@
 @keyframes image-in{from{opacity:.35;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
 
 @media(max-width:760px){.modal{padding:0}.preview{width:100vw;height:100dvh;border:0;border-radius:0;padding:54px 8px 74px}.slide-arrow{width:42px;height:58px;background:#090b1088}.slide-arrow.previous{left:4px}.slide-arrow.next{right:4px}.slideshow-controls span{display:none}}
+
+/* Account and admin screens */
+.user>button:not(.icon-btn){display:flex;align-items:center;gap:7px;border:0;border-radius:8px;background:transparent;color:#aeb4c1;padding:9px 11px;font-size:14px}
+.user>button:not(.icon-btn):hover,.user>button.nav-active{background:#252936;color:#fff}
+.management{display:grid;gap:20px}.page-heading h1{font-size:28px;margin:0 0 5px}.page-heading p{margin:0;color:#999faf}
+.management-grid{display:grid;grid-template-columns:minmax(260px,350px) minmax(0,1fr);gap:20px;align-items:start}
+.panel{background:#151820;border:1px solid #2b303c;border-radius:13px;padding:22px;display:grid;gap:15px;min-width:0}
+.panel h2{font-size:18px;margin:0 0 3px}.panel label{display:grid;gap:7px;color:#c5c9d2;font-size:14px}
+.panel input:not([type=checkbox]){width:100%;border:1px solid #343947;border-radius:9px;padding:11px 12px;background:#0e1016;color:white;outline:none}
+.panel input:focus{border-color:#7770ff}.panel .check{display:flex;align-items:center;gap:9px}.panel .check input{accent-color:#6c63ff}
+.panel button:not(.secondary){border:0;border-radius:9px;background:#6c63ff;color:white;padding:10px 14px}.panel button.secondary{border:1px solid #373c49;border-radius:8px;background:#242834;color:#e1e4eb;padding:8px 10px}
+.notice{padding:10px 12px;border:1px solid #315d4a;border-radius:8px;background:#17372b;color:#b6efd2}
+.user-list{display:grid;gap:0}.user-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-top:1px solid #2b303c}
+.user-row:first-child{border-top:0}.user-row strong,.user-row small{display:block}.user-row small{color:#9299aa;margin-top:3px}.user-buttons{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.reset-panel,.account-panel{max-width:480px}.form-actions{display:flex;gap:10px}.form-actions button{flex:1}
+@media(max-width:850px){.management-grid{grid-template-columns:1fr}.user-row{align-items:flex-start;flex-direction:column}.user-buttons{justify-content:flex-start}}
+@media(max-width:600px){header{padding:0 12px}.brand>span{display:none}.user{gap:2px}.user>button:not(.icon-btn){font-size:12px;padding:8px 6px}.user>button svg{display:none}.panel{padding:17px}}

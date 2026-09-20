@@ -1,41 +1,42 @@
 # Családi tárhely TrueNAS SCALE rendszerre
 
-Egyszerű, reszponzív, sötét webes fájlkezelő. A FastAPI kizárólag a `SHARED_ROOT` alatt dolgozik; az API és a felület csak relatív útvonalakat lát. A backend a loopback címen fut, az Nginx szolgálja ki a React buildet. Konténeres telepítésnél a HTTPS-t a Cloudflare Tunnel, a régi systemd telepítési mintában maga az Nginx terminálja.
+Egyszerű, reszponzív, sötét webes fájlkezelő. A fájl-API kizárólag a `SHARED_ROOT` alatt dolgozik; az API és a felület csak relatív fájlútvonalakat lát. A felhasználói adatbázis külön, az `AUTH_DB_PATH` helyén van. A backend a loopback címen fut, az Nginx szolgálja ki a React buildet. Konténeres telepítésnél a HTTPS-t a Cloudflare Tunnel, a régi systemd telepítési mintában maga az Nginx terminálja.
 
 ## Ajánlott: konténeres telepítés TrueNAS SCALE 24.10+ alatt
 
 Ehhez **nem kell Python virtualenv, Node.js vagy Nginx telepítése a NAS alaprendszerére**. A [Dockerfile](Dockerfile) a Reactet és a FastAPI-t két külön image-be építi, a [compose.yaml](compose.yaml) pedig a TrueNAS Apps „Install via YAML” felületére másolható. A korábbi, kézi systemd telepítés lejjebb alternatívaként megmaradt.
 
-1. A TrueNAS **Datasets** felületén hozd létre a `tank/family_share` datasetet az adatoknak, valamint például `tank/apps/family-share` datasetet a projektfájloknak. A projekt nem a megosztott datasetben van. Az **Apps** oldalon válassz Apps poolt, ha még nincs beállítva. Más poolnév esetén a Compose fájl három host path-ját is írd át.
-2. A TrueNAS **Credentials > Local Users/Groups** alatt hozz létre egy dedikált `familyshare` usert és csoportot, például UID/GID `3001:3001` értékkel, shell login nélkül. A `family_share` dataset ACL-jében ennek a usernek/csoportnak adj traverse/read/write/modify jogot, az `other` csoportnak ne. A projekt datasethez csak olvasási/traverse jog kell futáskor, de image buildkor a TrueNAS Apps/Docker szolgáltatásnak látnia kell a forrást. Ha más UID/GID-t választasz, módosítsd a `user: "3001:3001"` sort a Compose fájlban.
-3. Másold a projektet a `/mnt/tank/apps/family-share` mappába. A `.env.example` alapján hozz létre ott egy `.env` fájlt. Az Argon2 hashhez, ha a NAS-on nincs Python környezeted, az image elkészülte után használd az 5. pont egyparancsos generátorát.
+**Átállás a régi `.env`-es belépésről:** az `ADMIN_USERNAME` és `ADMIN_PASSWORD_HASH` mezők többé nem használatosak. Az új image indítása előtt hozd létre a külön adatbázis-datasetet, állítsd be a `AUTH_DB_PATH` értéket, és futtasd a kezdeti admin parancsot az 5. pont szerint. A régi fiók nem migrálódik automatikusan; a fájlok a megosztott dataseten változatlanul megmaradnak. Az auth-adatbázisról külön snapshot/mentés kell.
+
+1. A TrueNAS **Datasets** felületén hozd létre a `tank/family_share` datasetet az adatoknak, valamint például `tank/apps/family-share` datasetet a projektfájloknak és `tank/apps/family-share-config` datasetet a felhasználói adatbázisnak. A projekt és az SQLite DB nem a megosztott datasetben van. Az **Apps** oldalon válassz Apps poolt, ha még nincs beállítva. Más poolnév esetén a Compose fájl host path-jait is írd át.
+2. A TrueNAS **Credentials > Local Users/Groups** alatt hozz létre egy dedikált `familyshare` usert és csoportot, például UID/GID `3001:3001` értékkel, shell login nélkül. A `family_share` és `family-share-config` dataset ACL-jében ennek a usernek/csoportnak adj traverse/read/write/modify jogot, az `other` csoportnak ne. A projekt datasethez csak olvasási/traverse jog kell futáskor, de image buildkor a TrueNAS Apps/Docker szolgáltatásnak látnia kell a forrást. Ha más UID/GID-t választasz, módosítsd a `user: "3001:3001"` sort a Compose fájlban.
+3. Másold a projektet a `/mnt/tank/apps/family-share` mappába. A `.env.example` alapján hozz létre ott egy `.env` fájlt. Bejelentkezési jelszó már nincs a `.env`-ben.
 4. Az `.env` minimális éles tartalma:
 
    ```dotenv
    SHARED_ROOT=/mnt/tank/family_share
+   AUTH_DB_PATH=/mnt/tank/apps/family-share-config/auth.sqlite3
    APP_SECRET=ide-egy-openssl-rand-hex-32-kimenete
-   ADMIN_USERNAME=family
-   ADMIN_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'
    SESSION_HOURS=24
    COOKIE_SECURE=true
    PUBLIC_ORIGIN=https://files.example.com
    ```
 
-   A hash körüli **egyszeres idézőjelek fontosak**: a Docker Compose különben értelmezheti a `$` karaktereket. Az `APP_SECRET` legalább 32 karakter legyen; `openssl rand -hex 32` jó értéket ad. A `.env` ne kerüljön Gitbe, és lehetőleg csak admin olvashassa. A konténeren belül a `SHARED_ROOT` automatikusan `/data` lesz, ezt a Compose `environment` felülírja; a hoston továbbra is a `/mnt/tank/family_share` az adat helye.
+   Az `APP_SECRET` legalább 32 karakter legyen; `openssl rand -hex 32` jó értéket ad. A `.env` ne kerüljön Gitbe, és lehetőleg csak admin olvashassa. A konténeren belül a `SHARED_ROOT=/data`, az `AUTH_DB_PATH=/config/auth.sqlite3`; ezeket a Compose `environment` állítja be. A hoston a két dataset külön marad.
 5. A TrueNAS **Apps > Discover > ⋮ > Install via YAML** felületen az app neve legyen például `family-share`; másold be a teljes [compose.yaml](compose.yaml) tartalmát, ellenőrizd a host pathokat/UID-t/portot, majd Save. Az első build letölti a Python/Node/Nginx image-eket és az npm/Python függőségeket, de a NAS rendszerére nem telepít csomagot. A helyi CLI alternatíva: `cd /mnt/tank/apps/family-share && docker compose up -d --build`.
 
-   Ha még nincs jelszóhashed, először egy tetszőleges placeholderrel készítsd el az `.env`-et, építsd meg az image-et, majd a NAS shellben:
+   Az első admin fiókot az image buildje után egyszer, interaktív parancssal hozd létre a NAS shellben:
 
    ```bash
    cd /mnt/tank/apps/family-share
-   docker compose run --rm --no-deps backend python backend/scripts/hash_password.py
+   docker compose run --rm --no-deps backend python -m backend.scripts.create_admin
    ```
 
-   A kapott teljes hash kerüljön a `.env`-be az egyszeres idézőjelek közé, majd `docker compose up -d --force-recreate backend`. A TrueNAS UI-ból indított app esetén szükség lehet az app újraindítására vagy a YAML mentésére, hogy az új env érték életbe lépjen.
+   A parancs a jelszót rejtve kéri be, és Argon2id hashként közvetlenül a külön adatbázis-dataseten tárolja. Alapértelmezett admin fiók nincs. Ha az app még nincs elindítva, előbb `docker compose build`, utána futtasd a parancsot, végül indítsd az appot. A webes admin felületen további felhasználók létrehozhatók.
 6. A webes port alapból `18080` a NAS LAN-címén. **Ne nyisd ki a routeren.** Cloudflare Tunnelben a `files.example.com` hostname Service URL-je `http://NAS_LAN_IP:18080` legyen. A böngésző HTTPS-en érkezik Cloudflare-hez; a Tunnel és az app közötti helyi LAN-hop HTTP. Ha a `cloudflared` ugyanazon host hálózati névterében fut, a Compose portját korlátozhatod `127.0.0.1:18080:8080`-ra és a Tunnel `http://127.0.0.1:18080` URL-t használhat. A tunnel ne a backend `8000` portjára mutasson, mert ott nincs frontend.
 7. Ellenőrizd a TrueNAS **Apps > Installed > family-share > Logs** oldalon, hogy mindkét szolgáltatás fut. A `http://NAS_LAN_IP:18080/api/auth/me` bejelentkezés nélkül várt válasza `401`. Mivel `COOKIE_SECURE=true`, a bejelentkezést a `https://files.example.com` címen teszteld, nem a LAN HTTP címen.
 
-A `backend` konténer `127.0.0.1:8000`-en hallgat a **két konténer közös hálózati névterében**; ezt a portot a Compose nem publikálja. Csak az Nginx `8080` portja jelenik meg a NAS `18080` portján. A backend nem-root UID/GID-vel fut, a konténer root filesystemje csak olvasható, és kizárólag a `/data` bind mount írható. A nagy multipart feltöltések spoolja a dataseten lévő, API-ból tiltott `/data/.family-share-tmp` könyvtárba kerül; ezt induláskor a backend hozza létre `0700` móddal. Számolj azzal, hogy feltöltéskor a spool és a végleges fájl egy ideig egyszerre foglal helyet ugyanazon a dataseten.
+A `backend` konténer `127.0.0.1:8000`-en hallgat a **két konténer közös hálózati névterében**; ezt a portot a Compose nem publikálja. Csak az Nginx `8080` portja jelenik meg a NAS `18080` portján. A backend nem-root UID/GID-vel fut, a konténer root filesystemje csak olvasható, és kizárólag a `/data` (megosztott fájlok) és `/config` (fiókadatbázis) bind mount írható. A nagy multipart feltöltések spoolja a dataseten lévő, API-ból tiltott `/data/.family-share-tmp` könyvtárba kerül; ezt induláskor a backend hozza létre `0700` móddal. Számolj azzal, hogy feltöltéskor a spool és a végleges fájl egy ideig egyszerre foglal helyet ugyanazon a dataseten.
 
 **Cloudflare méretkorlát:** a konténer nem kerüli meg a Cloudflare publikus proxy/Tunnel egy kérésre vonatkozó feltöltési limitjét (Free/Pro csomagban jelenleg 100 MB). Több GB-os feltöltéshez később chunkolt upload API kell, vagy Cloudflare proxy nélküli/VPN-es útvonal. A meglévő letöltés és videó Range streaming ettől független.
 
@@ -43,7 +44,9 @@ Megjegyzés: a konténeres Nginx HTTP-n figyel a NAS-on; HTTPS-t ebben a feláll
 
 ## Funkciók és biztonsági modell
 
-- Argon2id jelszóhash, rövid életű aláírt session JWT egy `HttpOnly`, `Secure`, `SameSite=Strict` cookie-ban.
+- SQLite-ban tárolt helyi fiókok Argon2id jelszóhash-sel; első admin csak interaktív parancssal hozható létre, utána az admin felületen új felhasználó, adminjog, letiltás/aktiválás és jelszó-visszaállítás kezelhető. Rövid életű aláírt session JWT van `HttpOnly`, `Secure`, `SameSite=Strict` cookie-ban.
+- Minden hitelesített kérésnél aktív fiók és session-verzió ellenőrzés; jelszó- vagy szerepváltozás azonnal érvényteleníti a régi munkameneteket. Öt hibás belépés után 15 perces fiókzár.
+- Az admin szerep kizárólag a fiókkezelést korlátozza; minden aktív, bejelentkezett felhasználó ugyanazt a megosztott fájlkészletet látja és módosíthatja. Felhasználónkénti mappajogosultság nincs ebben a verzióban.
 - CSRF token és `Origin` ellenőrzés minden módosító kérésen.
 - Könyvtárlista, többfájlos drag-and-drop feltöltés, progress, letöltés, új mappa, átnevezés és megerősített törlés.
 - Folyamatos mappaszintű képnéző előző/következő navigációval, natív teljes képernyős móddal, mobilos lapozással és 4 másodperces diavetítéssel; emellett videó- és PDF-előnézet. A letöltés és preview 1 MiB-os darabokban streamel; az egyetlen HTTP byte-range kéréseket `206 Partial Content` válasszal kezeli.
@@ -62,8 +65,8 @@ Python 3.11+ és Node.js 20+ ajánlott.
 cp .env.example .env
 python3 -m venv backend/.venv
 backend/venv/bin/pip install -r requirements.txt
-backend/venv/bin/python backend/scripts/hash_password.py
-# Másold a kapott teljes $argon2id$... sort az .env ADMIN_PASSWORD_HASH értékébe.
+# A .env fájlban az AUTH_DB_PATH értékét egy külön, előre létrehozott írható mappára állítsd.
+backend/venv/bin/python -m backend.scripts.create_admin
 backend/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -99,7 +102,7 @@ Ne tedd a projektet ebbe a datasetbe. Snapshotot és mentést magára a `family_
 
 ### 2. Külön user/group és ACL
 
-A TrueNAS webes felületén hozz létre egy `familyshare` csoportot és ugyanilyen nevű, bejelentkezésre nem használható system usert. Jegyezd fel a választott UID/GID-t (például mindkettő `3001`). A dataset **Edit Permissions / ACL** nézetében:
+A TrueNAS webes felületén hozz létre egy `familyshare` csoportot és ugyanilyen nevű, bejelentkezésre nem használható system usert. Jegyezd fel a választott UID/GID-t (például mindkettő `3001`). Hozz létre egy külön `tank/apps/family-share-config` datasetet az adatbázisnak is. A két írható dataset **Edit Permissions / ACL** nézetében:
 
 - owner user: `familyshare` (`UID 3001`)
 - owner group: `familyshare` (`GID 3001`)
@@ -110,8 +113,8 @@ A TrueNAS webes felületén hozz létre egy `familyshare` csoportot és ugyanily
 Shellből POSIX jogosultság esetén az egyenértékű példa:
 
 ```bash
-chown -R familyshare:familyshare /mnt/tank/family_share
-chmod 2770 /mnt/tank/family_share
+chown -R familyshare:familyshare /mnt/tank/family_share /mnt/tank/apps/family-share-config
+chmod 2770 /mnt/tank/family_share /mnt/tank/apps/family-share-config
 ```
 
 A `2` setgid bit miatt az új elemek a `familyshare` csoportot öröklik. ACL datasetnél a webes ACL szerkesztőt használd, ne keverd gondolkodás nélkül a POSIX `chmod`-dal. Az Nginxnek nincs szüksége dataset-hozzáférésre.
@@ -137,22 +140,20 @@ A backend forrás és virtualenv így nem írható a szolgáltatás userének. F
 cd /opt/family-share
 cp .env.example .env
 openssl rand -hex 32
-backend/.venv/bin/python backend/scripts/hash_password.py
 ```
 
 Szerkeszd a `.env`-et:
 
 ```dotenv
 SHARED_ROOT=/mnt/tank/family_share
+AUTH_DB_PATH=/mnt/tank/apps/family-share-config/auth.sqlite3
 APP_SECRET=az-openssl-altal-generalt-legalabb-32-karakteres-titok
-ADMIN_USERNAME=family
-ADMIN_PASSWORD_HASH=$argon2id$v=19$m=65536,t=3,p=4$...
 SESSION_HOURS=24
 COOKIE_SECURE=true
 PUBLIC_ORIGIN=https://files.example.com
 ```
 
-Kézi (nem Compose) telepítésnél az Argon2 hash dollárjeleit nem kell escape-elni. Compose használatakor viszont tedd a teljes hash értékét egyszeres idézőjelek közé a fenti konténeres rész szerint. Védd a titkokat:
+A kezdő admint a projekt gyökeréből hozd létre: `backend/.venv/bin/python -m backend.scripts.create_admin`. Ez a jelszót rejtve kéri be; nincs admin jelszó a `.env`-ben. Védd a titkokat:
 
 ```bash
 chown root:familyshare /opt/family-share/.env
@@ -173,7 +174,7 @@ Az Nginxnek olvasási/traverse joga kell az `/opt/family-share/frontend/dist` k�
 
 ### 6. systemd
 
-A mellékelt [deploy/family-share.service](deploy/family-share.service) szolgáltatás nem-root userrel, kizárólag `127.0.0.1:8000` címen indul. A `ProtectSystem=strict` és a `ReadWritePaths=/mnt/tank/family_share` együtt megakadályozza, hogy máshova írjon. Ha más pool/dataset nevet használsz, a service fájlban is módosítsd a `ReadWritePaths` értékét.
+A mellékelt [deploy/family-share.service](deploy/family-share.service) szolgáltatás nem-root userrel, kizárólag `127.0.0.1:8000` címen indul. A `ProtectSystem=strict` és a két `ReadWritePaths` bejegyzés együtt csak a megosztott és az auth-adatbázis datasetjét engedi írni. Ha más pool/dataset nevet használsz, a service fájlban is módosítsd ezeket az értékeket.
 
 ```bash
 cp /opt/family-share/deploy/family-share.service /etc/systemd/system/
